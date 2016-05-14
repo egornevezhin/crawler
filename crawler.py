@@ -17,6 +17,7 @@ from time import strftime
 import sys
 
 import mysql.connector
+import re
 sys.setrecursionlimit(10000)
 
 #	цель для паука
@@ -181,16 +182,18 @@ def main():
 		# дальше идет кусок исправления
 		# в связи с тем, что в рунете появились так назывваемые
 		# IDN(Internationalized Domain Names) ссылки, преходится их декодировать
+		# русско-английские ссылки не работают
 		try:
 			cur.execute('INSERT INTO hlopotov (site) VALUES("' + envEncode(str(link)) + '")')
-			print link
+			# print link
 		except (UnicodeEncodeError):
+			link = re.sub('\http://', '', link)
+			link = re.sub('\https://', '', link)
 			print link
-			link.replace('http://', '')
-			link.replace('https://', '')
 			t = envEncode(link.encode('idna').encode('utf-8'))
-			print t
-			# cur.execute('INSERT INTO hlopotov (site) VALUES("' + t + '")')
+			t = re.sub('\/-4tbm', 'p1ai/', t)
+			# print t
+			cur.execute('INSERT INTO hlopotov (site) VALUES("' + t + '")')
 			# print link
 
 	db.commit()
