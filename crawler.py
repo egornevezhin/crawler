@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 #	Код для последующей доработки студентами
 
@@ -18,10 +19,12 @@ import sys
 
 import mysql.connector
 import re
+import os
+import json
 sys.setrecursionlimit(10000)
 
 #	цель для паука
-TARGET_SITE = 'http://itgs.ifmo.ru'
+TARGET_SITE = 'http://lider-taxi.com/'
 
 def envEncode(line):
 
@@ -54,7 +57,10 @@ class Crawler:
 	externalLinks = []
 	#	list	ссылки, которые необходимо пройти
 	linksToFollow = []
-	
+	#   list  исходный код страницы
+	sourceCode = []
+
+
 	def __init__(self, startPage):
 		'''
 		Конструктор класса
@@ -90,14 +96,19 @@ class Crawler:
 		try:
 			#	Скачаем страницу и помещаем в виде строки в переменную
 			html = urllib2.urlopen(self.currentUrl).read()
-			#	Парсинг
-			self.parseWebPageContent(html)			
+			# 	Исходник страницы для добавления в базу
+			# json.dumps(html)
+			self.sourceCode.append(html)
+			#	Парсинг	
+			self.parseWebPageContent(html)
+			
 		except:
 			print envEncode("[ERROR] Ошибка загрузки %s" % (envEncode(self.currentUrl)))
+			print url
 			return
 		print "*" * 20
 		print envEncode("[%s] Внешних ссылок: %d, ссылок посещено: %d, ссылок осталось: %d"\
-			% (pTime(),len(self.externalLinks), len(self.visitedLinks), len(self.externalLinks) - len(self.visitedLinks)))
+			% (pTime(),len(self.externalLinks), len(self.visitedLinks), len(self.linksToFollow)))
 		print "*" * 20
 		#	Продолжить обход
 		#if len(self.linksToFollow) > 0:
@@ -171,36 +182,48 @@ def main():
 	'''
 	Основная функция
 	'''
+
 	db = connect_mysql()
 	cur = db.cursor()
-	crawler = Crawler(TARGET_SITE)
+	crawler = Crawler(TARGET_SITE)	
 
-	print '*' * 20
-	print envEncode("[%s] Список внешних ссылок" % (pTime,))
-	print '*' * 20
-	for link in crawler.externalLinks:
+	
+	# print '*' * 20
+	# print envEncode("[%s] Список внешних ссылок" % (pTime,))
+	# print '*' * 20
+	for link, sourceCode in zip(crawler.externalLinks, crawler.sourceCode):
 		# дальше идет кусок исправления
 		# в связи с тем, что в рунете появились так назывваемые
 		# IDN(Internationalized Domain Names) ссылки, преходится их декодировать
 		# русско-английские ссылки не работают
 		try:
-			cur.execute('INSERT INTO hlopotov (site) VALUES("' + envEncode(str(link)) + '")')
-			# print link
-		except (UnicodeEncodeError):
-			link = re.sub('\http://', '', link)
-			link = re.sub('\https://', '', link)
-			print link
-			t = envEncode(link.encode('idna').encode('utf-8'))
-			t = re.sub('\/-4tbm', 'p1ai/', t)
-			# print t
-			cur.execute('INSERT INTO hlopotov (site) VALUES("' + t + '")')
-			# print link
+			try:
+				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + envEncode(str(link)) + '",' + envEncode(json.dumps(sourceCode)) + ')')
+				# print link
 
+			except (UnicodeEncodeError):
+
+				# сюда попадают ссылки с руским языком
+				# регуляркой вытаскиваем из них протокол
+				# и исправляем ошибку, которая появляеься пре декодировке
+
+				link = re.sub('\http://', '', link)
+				link = re.sub('\https://', '', link)
+				t = re.sub('\/-4tbm', 'p1ai/', envEncode(link.encode('idna').encode('utf-8')))
+				
+				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + t + '",' + json.dumps(sourceCode) + ')')
+		except (UnicodeDecodeError):
+
+			# сюда попадают очень плохие ссылки, которые содержат в себе документы
+			# или код с непереводящимися в utf-8 символами 
+			# потом придумаю, что с ними делать
+
+			pass
 	db.commit()
 	cur.close()
 	db.close()
 	
-if __name__ == "__main__":
+if __name__ == "__main__":	
 	'''
 	Оставляет возможность подключать функции и классы
 	этого файла без запуска основной функции.
