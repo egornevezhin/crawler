@@ -1,5 +1,8 @@
+# -*- coding: utf-8 -*
+# Найденые баги:
+# 
 
-# -*- coding: utf-8 -*-
+
 #	Код для последующей доработки студентами
 
 #	библиотека для работы с url, позволяет скачивать Web-страницы
@@ -24,7 +27,7 @@ import json
 sys.setrecursionlimit(10000)
 
 #	цель для паука
-TARGET_SITE = 'http://lider-taxi.com/'
+TARGET_SITE = 'http://taxi-lider.ru/'
 
 def envEncode(line):
 
@@ -57,7 +60,7 @@ class Crawler:
 	externalLinks = []
 	#	list	ссылки, которые необходимо пройти
 	linksToFollow = []
-	#   list  исходный код страницы
+	#   list  	исходный код страницы
 	sourceCode = []
 
 
@@ -67,7 +70,7 @@ class Crawler:
 		'''
 		print envEncode("[%s] Экземпляр Crawler создан" % (pTime(),))
 		self.domain = urlparse.urlsplit(startPage).netloc
-		print envEncode("[%s] Доменное имя сайта: %s" % (pTime(), self.domain))
+		print envEncode("[%s] Доменное имя сайта: %s" % (pTime(), self.domain))	
 		startUrl = 'http://' + self.domain
 		self.linksToFollow.append(startUrl)
 		self.crawlUrl(startUrl)
@@ -82,10 +85,19 @@ class Crawler:
 		Переходы на внешние ресурсы не происходят.
 		@param	string	url	ссылка для обработки пауком
 		'''
+		t = url
 		if urlparse.urlsplit(url).netloc == '':
-				url = 'http://' + self.domain + url
+			# исключение для внутренних ссылок
+			url = 'http://' + self.domain + url
 		#	если страница уже посещена, то повторно обрабатывать страницу не надо
 		if url in self.visitedLinks:
+			# страницу нужно убрать из очереди
+			self.linksToFollow.remove(url)
+			# и вывести количество оставшихся
+			print envEncode("Ссылка уже посещена: " + str(url))
+			print envEncode("[%s] Внешних ссылок: %d, ссылок посещено: %d, ссылок осталось: %d"\
+				% (pTime(),len(self.externalLinks), len(self.visitedLinks), len(self.linksToFollow)))
+			print "*" * 20
 			return
 		#	Помечаем текущую страницу, как посещенную
 		self.visitedLinks.append(url)
@@ -97,14 +109,12 @@ class Crawler:
 			#	Скачаем страницу и помещаем в виде строки в переменную
 			html = urllib2.urlopen(self.currentUrl).read()
 			# 	Исходник страницы для добавления в базу
-			# json.dumps(html)
 			self.sourceCode.append(html)
 			#	Парсинг	
 			self.parseWebPageContent(html)
 			
 		except:
 			print envEncode("[ERROR] Ошибка загрузки %s" % (envEncode(self.currentUrl)))
-			print url
 			return
 		print "*" * 20
 		print envEncode("[%s] Внешних ссылок: %d, ссылок посещено: %d, ссылок осталось: %d"\
@@ -115,6 +125,7 @@ class Crawler:
 		#	self.crawlUrl(self.linksToFollow[0])
 		for link in self.linksToFollow:
 		#	#print "NEXT ", link
+			print len(self.linksToFollow)
 			self.crawlUrl(link)
 			
 	def parseWebPageContent(self, html):
@@ -188,9 +199,6 @@ def main():
 	crawler = Crawler(TARGET_SITE)	
 
 	
-	# print '*' * 20
-	# print envEncode("[%s] Список внешних ссылок" % (pTime,))
-	# print '*' * 20
 	for link, sourceCode in zip(crawler.externalLinks, crawler.sourceCode):
 		# дальше идет кусок исправления
 		# в связи с тем, что в рунете появились так назывваемые
