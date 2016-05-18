@@ -16,7 +16,7 @@ import BeautifulSoup
 from BeautifulSoup import BeautifulSoup 
 #	из библиотеки time и вложенного в нее модуля time подключаем 
 #	функцию для вывода времени согласно формату пользователя
-from time import strftime
+import time
 #	если возникает проблема с ограничением рекурсии, то можно подставить свое значение
 import sys
 
@@ -24,10 +24,11 @@ import mysql.connector
 import re
 import os
 import json
+from multiprocessing import Process
 sys.setrecursionlimit(10000)
 
 #	цель для паука
-TARGET_SITE = 'http://taxi-lider.ru/'
+TARGET_SITE = 'http://itgs.ifmo.ru/'
 
 def envEncode(line):
 
@@ -35,7 +36,7 @@ def envEncode(line):
 	#return line.decode('utf-8').encode("cp1251") в случае, если винда
 
 def	pTime():
-	return strftime("%Y-%m-%d %H:%M:%S")
+	return time.strftime("%Y-%m-%d %H:%M:%S")
 
 def connect_mysql():
 	config = { 
@@ -120,13 +121,14 @@ class Crawler:
 		print envEncode("[%s] Внешних ссылок: %d, ссылок посещено: %d, ссылок осталось: %d"\
 			% (pTime(),len(self.externalLinks), len(self.visitedLinks), len(self.linksToFollow)))
 		print "*" * 20
-		#	Продолжить обход
-		#if len(self.linksToFollow) > 0:
+		#	Продолжить обход		#if len(self.linksToFollow) > 0:
+
 		#	self.crawlUrl(self.linksToFollow[0])
 		for link in self.linksToFollow:
 		#	#print "NEXT ", link
-			print len(self.linksToFollow)
-			self.crawlUrl(link)
+			p=Process(target=self.crawlUrl(link))
+			p.start()
+			# self.crawlUrl(link)
 			
 	def parseWebPageContent(self, html):
 		'''
@@ -193,6 +195,7 @@ def main():
 	'''
 	Основная функция
 	'''
+ 	tstart = time.time()
 
 	db = connect_mysql()
 	cur = db.cursor()
@@ -230,6 +233,8 @@ def main():
 	db.commit()
 	cur.close()
 	db.close()
+
+	print 'Время работы программы: ' + str(time.time() - tstart)
 	
 if __name__ == "__main__":	
 	'''
