@@ -21,14 +21,17 @@ import time
 import sys
 
 import mysql.connector
-import re
 import os
 import json
-from multiprocessing import Process
+import multiprocessing
+
 sys.setrecursionlimit(10000)
 
 #	цель для паука
 TARGET_SITE = 'http://itgs.ifmo.ru/'
+
+
+
 
 def envEncode(line):
 
@@ -63,6 +66,9 @@ class Crawler:
 	linksToFollow = []
 	#   list  	исходный код страницы
 	sourceCode = []
+	# 	очередь
+	num_process = 2
+	in_queue = multiprocessing.JoinableQueue()
 
 
 	def __init__(self, startPage):
@@ -77,7 +83,15 @@ class Crawler:
 		self.crawlUrl(startUrl)
 		#while len(self.linksToFollow) > 0:
 		#	self.crawlUrl(self.linksToFollow[0])
-		
+
+
+	def processing(self, thread_num, iq):
+	    while True:
+	        link = iq.get()
+	        self.crawlUrl(link)
+	        iq.task_done()
+
+
 		
 	def	crawlUrl(self, url):
 		'''
@@ -86,7 +100,6 @@ class Crawler:
 		Переходы на внешние ресурсы не происходят.
 		@param	string	url	ссылка для обработки пауком
 		'''
-		t = url
 		if urlparse.urlsplit(url).netloc == '':
 			# исключение для внутренних ссылок
 			url = 'http://' + self.domain + url
@@ -94,6 +107,7 @@ class Crawler:
 		if url in self.visitedLinks:
 			# страницу нужно убрать из очереди
 			self.linksToFollow.remove(url)
+
 			# и вывести количество оставшихся
 			print envEncode("Ссылка уже посещена: " + str(url))
 			print envEncode("[%s] Внешних ссылок: %d, ссылок посещено: %d, ссылок осталось: %d"\
@@ -124,11 +138,26 @@ class Crawler:
 		#	Продолжить обход		#if len(self.linksToFollow) > 0:
 
 		#	self.crawlUrl(self.linksToFollow[0])
+
 		for link in self.linksToFollow:
 		#	#print "NEXT ", link
-			p=Process(target=self.crawlUrl(link))
-			p.start()
+			# p=Process(target=self.crawlUrl(link))
+			# p.start()
+			# p.join()
+			
 			# self.crawlUrl(link)
+			# self.in_queue.put(link)
+			# for i in xrange(4):
+			self.in_queue.put(link)
+
+		for i in xrange(self.num_process):
+			worker = multiprocessing.Process(target=self.processing, args=(i, self.in_queue))
+			# worker.daemon = True
+			worker.start()	
+		
+		in_queue.join()
+
+				
 			
 	def parseWebPageContent(self, html):
 		'''
@@ -195,7 +224,7 @@ def main():
 	'''
 	Основная функция
 	'''
- 	tstart = time.time()
+	tstart = time.time()
 
 	db = connect_mysql()
 	cur = db.cursor()
@@ -243,3 +272,4 @@ if __name__ == "__main__":
 	Т.о. этот код срабатывает только при python default_crawler.py
 	'''
 	main()
+	
