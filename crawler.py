@@ -21,13 +21,12 @@ from time import strftime
 import sys
 
 import mysql.connector
-import re
 import os
 import json
 sys.setrecursionlimit(10000)
 
 #	цель для паука
-TARGET_SITE = 'http://taxi-lider.ru/'
+# TARGET_SITE = 'http://itgs.ifmo.ru/'
 
 def envEncode(line):
 
@@ -85,7 +84,6 @@ class Crawler:
 		Переходы на внешние ресурсы не происходят.
 		@param	string	url	ссылка для обработки пауком
 		'''
-		t = url
 		if urlparse.urlsplit(url).netloc == '':
 			# исключение для внутренних ссылок
 			url = 'http://' + self.domain + url
@@ -125,7 +123,6 @@ class Crawler:
 		#	self.crawlUrl(self.linksToFollow[0])
 		for link in self.linksToFollow:
 		#	#print "NEXT ", link
-			print len(self.linksToFollow)
 			self.crawlUrl(link)
 			
 	def parseWebPageContent(self, html):
@@ -196,6 +193,8 @@ def main():
 
 	db = connect_mysql()
 	cur = db.cursor()
+	TARGET_SITE = sys.argv[1]
+	# получение ссылки в качестве входного параметра
 	crawler = Crawler(TARGET_SITE)	
 
 	
