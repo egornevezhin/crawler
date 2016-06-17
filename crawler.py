@@ -63,14 +63,9 @@ class Crawler:
     linksToFollow = []
     #   list    исходный код страницы
     sourceCode = []
-    #   cursor  Курсор базы данных
-    db = connect_mysql()
-    db.autocommit = True
-    cur = db.cursor()
-    links = multiprocessing.JoinableQueue()
-    sourceCodes = multiprocessing.JoinableQueue()
 
     num_process = 4
+    in_queue = multiprocessing.JoinableQueue()
 
 
     def __init__(self, startPage):
@@ -83,12 +78,19 @@ class Crawler:
         startUrl = 'http://' + self.domain
         self.linksToFollow.append(startUrl)
         self.crawlUrl(startUrl)
-        
-
-        
         #while len(self.linksToFollow) > 0:
         #   self.crawlUrl(self.linksToFollow[0])
-        
+
+
+    def processing(self, thread_num, iq):
+        while True:
+            url = iq.get()
+            if url == None:
+                return
+            f = self.crawlUrl(url)
+            iq.task_done()
+
+            print "%d - %s" % (thread_num, url)
         
     def crawlUrl(self, url):
         '''
@@ -107,8 +109,9 @@ class Crawler:
             # и вывести количество оставшихся
             print envEncode("Ссылка уже посещена: " + str(url))
             print envEncode("[%s] Внешних ссылок: %d, ссылок посещено: %d, ссылок осталось: %d"\
-                % (pTime(),len(self.externalLinks), len(self.visitedLinks), len(self.linksToFollow)))
+              % (pTime(),len(self.externalLinks), len(self.visitedLinks), len(self.linksToFollow)))
             print "*" * 20
+            
             return
         #   Помечаем текущую страницу, как посещенную
         self.visitedLinks.append(url)
@@ -127,29 +130,25 @@ class Crawler:
         except:
             print envEncode("[ERROR] Ошибка загрузки %s" % (envEncode(self.currentUrl)))
             return
+
         print "*" * 20
         print envEncode("[%s] Внешних ссылок: %d, ссылок посещено: %d, ссылок осталось: %d"\
-            % (pTime(),len(self.externalLinks), len(self.visitedLinks), len(self.linksToFollow)))
+          % (pTime(),len(self.externalLinks), len(self.visitedLinks), len(self.linksToFollow)))
         print "*" * 20
+
         #   Продолжить обход
         #if len(self.linksToFollow) > 0:
         #   self.crawlUrl(self.linksToFollow[0])
-        for l, s in zip(self.externalLinks, self.sourceCode):
-            self.links.put(l)
-            self.sourceCodes.put(s)
-            self.externalLinks.remove(l)
-            self.sourceCode.remove(s)
+            
 
-        for link in self.linksToFollow:
-        #   #print "NEXT ", link
+        for i in xrange(self.num_process):
+            worker = multiprocessing.Process(target=self.processing, args=(i, self.in_queue))
+            # worker.daemon = True
+            worker.start()
 
-            for i in xrange(self.num_process):
-                worker = multiprocessing.Process(target=self.processing, args=(i, self.links, self.sourceCodes))
-                worker.daemon = True
-                worker.start()
 
-            self.links.join()
-            self.crawlUrl(link)
+        self.in_queue.join()
+        
             
     def parseWebPageContent(self, html):
         '''
@@ -178,6 +177,9 @@ class Crawler:
                         '',))
                 if url not in self.linksToFollow:
                     self.linksToFollow.append(url)
+                    self.in_queue.put(url)
+
+
         
     def checkIfLinkShouldBeFollowed(self, a):
         '''
@@ -193,7 +195,6 @@ class Crawler:
         extPattern = re.compile('.*?(\.htm[l]?|\.php|\.phtml|\.sgml|\.jsp|\.asp|\/)$', re.IGNORECASE)
         if a.has_key('href') and a['href'] != None:
             link = a['href']
-            urlsplitResult = urlparse.urlsplit(link)
             #   если домен совпадает или пуст, то считать ссылку внутренней
             if urlsplitResult.netloc == self.domain or urlsplitResult.netloc == '': 
                 if (urlsplitResult.path != '' or urlsplitResult.query != '') \
@@ -201,7 +202,7 @@ class Crawler:
                     print "[INTERNAL]", link
                     result = True
                 else:
-                    print "[IGNORE]", link
+                   print "[IGNORE]", link
             else:
                 #   игнорировать иные протоколы, кроме http и https
                 if  urlsplitResult.scheme in ['http', 'https']:
@@ -209,25 +210,30 @@ class Crawler:
                         self.externalLinks.append(link)
                 print "[EXTERNAL]", link
         return result
-
-    def processing(self, thread_num, links, sourceCodes):
-        while True:
-            link = links.get()
-            sourceCode = sourceCodes.get()
-            f = self.insertDB(link, sourceCode)
-            links.task_done()
-            sourceCodes.task_done()
-            print "%d - %s" % (thread_num, link)
         
+    
+        
+def main():
+    '''
+    Основная функция
+    '''
 
-    def insertDB(self, link, sourceCode):
+    db = connect_mysql()
+    cur = db.cursor()
+    TARGET_SITE = sys.argv[1]
+    # получение ссылки в качестве входного параметра
+    crawler = Crawler(TARGET_SITE) 
+
+
+    
+    for link, sourceCode in zip(crawler.externalLinks, crawler.sourceCode):
         # дальше идет кусок исправления
         # в связи с тем, что в рунете появились так назывваемые
         # IDN(Internationalized Domain Names) ссылки, преходится их декодировать
         # русско-английские ссылки не работают
         try:
             try:
-                self.cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + envEncode(str(link)) + '",' + envEncode(json.dumps(sourceCode)) + ')')
+                cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + envEncode(str(link)) + '",' + envEncode(json.dumps(sourceCode)) + ')')
                 # print link
 
             except (UnicodeEncodeError):
@@ -240,7 +246,7 @@ class Crawler:
                 link = re.sub('\https://', '', link)
                 t = re.sub('\/-4tbm', 'p1ai/', envEncode(link.encode('idna').encode('utf-8')))
                 
-                self.cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + t + '",' + json.dumps(sourceCode) + ')')
+                cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + t + '",' + json.dumps(sourceCode) + ')')
         except (UnicodeDecodeError):
 
             # сюда попадают очень плохие ссылки, которые содержат в себе документы
@@ -248,17 +254,9 @@ class Crawler:
             # потом придумаю, что с ними делать
 
             pass
-    
-        
-def main():
-    '''
-    Основная функция
-    '''
-
-    TARGET_SITE = sys.argv[1]
-    # получение ссылки в качестве входного параметра
-    crawler = Crawler(TARGET_SITE)  
-
+    db.commit()
+    cur.close()
+    db.close()
     
 if __name__ == "__main__":  
     '''
