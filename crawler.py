@@ -23,6 +23,9 @@ import sys
 import mysql.connector
 import os
 import json
+import multiprocessing
+import Queue
+
 sys.setrecursionlimit(10000)
 
 #	цель для паука
@@ -61,7 +64,14 @@ class Crawler:
 	linksToFollow = []
 	#   list  	исходный код страницы
 	sourceCode = []
-
+	#	mysql_connector	
+	db = connect_mysql()
+	#	mysql_cursor
+	cur = db.cursor()
+	# 	Queue 	очередь для ссылок
+	in_queue = multiprocessing.JoinableQueue()
+	# 	int 	количество потоков
+	num_process = 4
 
 	def __init__(self, startPage):
 		'''
@@ -106,8 +116,6 @@ class Crawler:
 		try:
 			#	Скачаем страницу и помещаем в виде строки в переменную
 			html = urllib2.urlopen(self.currentUrl).read()
-			# 	Исходник страницы для добавления в базу
-			self.sourceCode.append(html)
 			#	Парсинг	
 			self.parseWebPageContent(html)
 			
@@ -133,6 +141,7 @@ class Crawler:
 		#print envEncode(html)
 		soup = BeautifulSoup(html)
 		for a in soup.findAll('a'):
+			self.in_queue.put(a)
 			if self.checkIfLinkShouldBeFollowed(a):
 				url = a['href']
 				#	разбиваем ссылку
@@ -152,6 +161,21 @@ class Crawler:
 						'',))
 				if url not in self.linksToFollow:
 					self.linksToFollow.append(url)
+
+		for i in xrange(self.num_process):
+		    worker = multiprocessing.Process(target=processing, args=(i, in_queue))
+		    worker.daemon = True
+		    worker.start()
+
+
+	def processing(thread_num, iq):
+    while True:
+        n = iq.get()
+        f = self.checkIfLinkShouldBeFollowed(n)
+        
+        iq.task_done()
+        print "%d - %d" % (thread_num, n)
+
 		
 	def	checkIfLinkShouldBeFollowed(self, a):
 		'''
@@ -180,32 +204,24 @@ class Crawler:
 				#	игнорировать иные протоколы, кроме http и https
 				if	urlsplitResult.scheme in ['http', 'https']:
 					if link not in self.externalLinks:
+						code = urllib2.urlopen(link).read()
 						self.externalLinks.append(link)
-				print "[EXTERNAL]", link
+						if code != '':
+							self.sourceCode.append(code)
+						else:
+							self.sourceCode.append('Nan')
+						print "[EXTERNAL]", link
 		return result
 		
-	
-		
-def main():
-	'''
-	Основная функция
-	'''
 
-	db = connect_mysql()
-	cur = db.cursor()
-	TARGET_SITE = sys.argv[1]
-	# получение ссылки в качестве входного параметра
-	crawler = Crawler(TARGET_SITE)	
-
-	
-	for link, sourceCode in zip(crawler.externalLinks, crawler.sourceCode):
+	def insertDB(self, link, sourceCode):
 		# дальше идет кусок исправления
 		# в связи с тем, что в рунете появились так назывваемые
 		# IDN(Internationalized Domain Names) ссылки, преходится их декодировать
 		# русско-английские ссылки не работают
 		try:
 			try:
-				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + envEncode(str(link)) + '",' + envEncode(json.dumps(sourceCode)) + ')')
+				self.cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + str(link) + '",' + json.dumps(sourceCode) + ')')
 				# print link
 
 			except (UnicodeEncodeError):
@@ -216,19 +232,31 @@ def main():
 
 				link = re.sub('\http://', '', link)
 				link = re.sub('\https://', '', link)
-				t = re.sub('\/-4tbm', 'p1ai/', envEncode(link.encode('idna').encode('utf-8')))
+				t = re.sub('\/-4tbm', 'p1ai/', link.encode('idna').encode('utf-8'))
 				
-				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + t + '",' + json.dumps(sourceCode) + ')')
+				self.cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + t + '",' + json.dumps(sourceCode) + ')')
 		except (UnicodeDecodeError):
 
 			# сюда попадают очень плохие ссылки, которые содержат в себе документы
 			# или код с непереводящимися в utf-8 символами 
-			# потом придумаю, что с ними делать
 
-			pass
-	db.commit()
-	cur.close()
-	db.close()
+			print envEncode("Ссылку не удалось добавить в базу: " + str(link))
+	
+		
+def main():
+	'''
+	Основная функция
+	'''
+
+	
+	TARGET_SITE = sys.argv[1]
+	# получение ссылки в качестве входного параметра
+	crawler = Crawler(TARGET_SITE)	
+	
+			
+	crawler.db.commit()
+	crawler.cur.close()
+	crawler.db.close()
 	
 if __name__ == "__main__":	
 	'''
