@@ -28,6 +28,10 @@ sys.setrecursionlimit(10000)
 #	цель для паука
 # TARGET_SITE = 'http://itgs.ifmo.ru/'
 
+def encodeDB(line):
+	return line.decode('utf-8').encode("utf-8")
+
+
 def envEncode(line):
 
 	return line.decode('utf-8').encode("utf-8")
@@ -59,8 +63,9 @@ class Crawler:
 	externalLinks = []
 	#	list	ссылки, которые необходимо пройти
 	linksToFollow = []
-	#   list  	исходный код страницы
-	sourceCode = []
+	#   dict  	исходный код страницы
+	sourceCode = {}
+
 
 
 	def __init__(self, startPage):
@@ -106,8 +111,6 @@ class Crawler:
 		try:
 			#	Скачаем страницу и помещаем в виде строки в переменную
 			html = urllib2.urlopen(self.currentUrl).read()
-			# 	Исходник страницы для добавления в базу
-			self.sourceCode.append(html)
 			#	Парсинг	
 			self.parseWebPageContent(html)
 			
@@ -181,6 +184,7 @@ class Crawler:
 				if	urlsplitResult.scheme in ['http', 'https']:
 					if link not in self.externalLinks:
 						self.externalLinks.append(link)
+						self.sourceCode.update({ link : urllib2.urlopen(self.currentUrl).read()})
 				print "[EXTERNAL]", link
 		return result
 		
@@ -198,29 +202,30 @@ def main():
 	crawler = Crawler(TARGET_SITE)	
 
 	
-	for link, sourceCode in zip(crawler.externalLinks, crawler.sourceCode):
+	for key, value in crawler.sourceCode.iteritems():
 		# дальше идет кусок исправления
 		# в связи с тем, что в рунете появились так назывваемые
 		# IDN(Internationalized Domain Names) ссылки, преходится их декодировать
 		# русско-английские ссылки не работают
 		try:
 			try:
-				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + envEncode(str(link)) + '",' + envEncode(json.dumps(sourceCode)) + ')')
+				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + encodeDB(key) + '",' + json.dumps(encodeDB(value)) + ')')
 				# print link
 
 			except (UnicodeEncodeError):
 
 				# сюда попадают ссылки с руским языком
 				# регуляркой вытаскиваем из них протокол
-				# и исправляем ошибку, которая появляеься пре декодировке
+				# и исправляем ошибку, которая появляеься при декодировке
 
-				link = re.sub('\http://', '', link)
+				link = re.sub('\http://', '', key)
 				link = re.sub('\https://', '', link)
-				t = re.sub('\/-4tbm', 'p1ai/', envEncode(link.encode('idna').encode('utf-8')))
+				t = re.sub('\/-4tbm', 'p1ai/', link.encode('idna').encode('utf-8'))
 				
-				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + t + '",' + json.dumps(sourceCode) + ')')
+				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + t + '",' + json.dumps(encodeDB(value)) + ')')
 		except (UnicodeDecodeError):
 
+			print "Ссылку не удалось добавить" + envEncode(key)
 			# сюда попадают очень плохие ссылки, которые содержат в себе документы
 			# или код с непереводящимися в utf-8 символами 
 			# потом придумаю, что с ними делать
