@@ -65,6 +65,10 @@ class Crawler:
 	linksToFollow = []
 	#   dict  	исходный код страницы
 	sourceCode = {}
+	# 	dicr	cвязь родитель - ребенок
+	children = {}
+	#	string 	родитель
+	parent = ''
 
 
 
@@ -106,13 +110,14 @@ class Crawler:
 		self.visitedLinks.append(url)
 		#	Убираем текущую ссылку из очереди
 		self.linksToFollow.remove(url)
+		self.parent = url
 		self.currentUrl = url
 		print envEncode("[+] %s" % (self.currentUrl,))
 		try:
 			#	Скачаем страницу и помещаем в виде строки в переменную
 			html = urllib2.urlopen(self.currentUrl).read()
 			#	Парсинг	
-			self.parseWebPageContent(html)
+			self.parseWebPageContent(html, self.parent)
 			
 		except:
 			print envEncode("[ERROR] Ошибка загрузки %s" % (envEncode(self.currentUrl)))
@@ -128,7 +133,7 @@ class Crawler:
 		#	#print "NEXT ", link
 			self.crawlUrl(link)
 			
-	def parseWebPageContent(self, html):
+	def parseWebPageContent(self, html, parent):
 		'''
 		Парсинг контента: извлечение и анализ ссылок, дополнение очереди
 		string html HTML-код страницы
@@ -136,7 +141,7 @@ class Crawler:
 		#print envEncode(html)
 		soup = BeautifulSoup(html)
 		for a in soup.findAll('a'):
-			if self.checkIfLinkShouldBeFollowed(a):
+			if self.checkIfLinkShouldBeFollowed(a, parent):
 				url = a['href']
 				#	разбиваем ссылку
 				urlsplitResult = urlparse.urlsplit(url)
@@ -156,7 +161,7 @@ class Crawler:
 				if url not in self.linksToFollow:
 					self.linksToFollow.append(url)
 		
-	def	checkIfLinkShouldBeFollowed(self, a):
+	def	checkIfLinkShouldBeFollowed(self, a, parent):
 		'''
 		Метод возвращает bool
 		Проверка ссылки:
@@ -185,6 +190,7 @@ class Crawler:
 					if link not in self.externalLinks:
 						self.externalLinks.append(link)
 						self.sourceCode.update({ link : urllib2.urlopen(self.currentUrl).read()})
+						self.children.update({link : parent})
 				print "[EXTERNAL]", link
 		return result
 		
@@ -209,7 +215,7 @@ def main():
 		# русско-английские ссылки не работают
 		try:
 			try:
-				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + encodeDB(key) + '",' + json.dumps(encodeDB(value)) + ')')
+				cur.execute('INSERT INTO hlopotov (site, source_code, parent) VALUES("' + encodeDB(key) + '",' + json.dumps(encodeDB(value)) + ',"' + encodeDB(crawler.children[key]) + '")')
 				# print link
 
 			except (UnicodeEncodeError):
@@ -222,7 +228,7 @@ def main():
 				link = re.sub('\https://', '', link)
 				t = re.sub('\/-4tbm', 'p1ai/', link.encode('idna').encode('utf-8'))
 				
-				cur.execute('INSERT INTO hlopotov (site, source_code) VALUES("' + t + '",' + json.dumps(encodeDB(value)) + ')')
+				cur.execute('INSERT INTO hlopotov (site, source_code, parent) VALUES("' + t + '",' + json.dumps(encodeDB(value)) + ',"' + encodeDB(crawler.children[key]) + '")')
 		except (UnicodeDecodeError):
 
 			print "Ссылку не удалось добавить" + envEncode(key)
